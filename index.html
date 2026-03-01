@@ -66,7 +66,18 @@ button:disabled { background:#555; cursor: not-allowed; opacity: 0.6; }
     opacity: 1;
     filter: brightness(1.5) drop-shadow(0 0 10px #ffc107);
 }
-
+#btnCloseDrum {
+    background: #666;
+    border-radius: 3px;
+    margin-left: 10px;
+    line-height: 18px;
+    width: 20px;
+    height: 20px;
+    display: inline-block;
+}
+#btnCloseDrum:hover {
+    background: #dc3545; /* ホバーで赤くする */
+}
 </style>
 
 </head>
@@ -77,7 +88,12 @@ button:disabled { background:#555; cursor: not-allowed; opacity: 0.6; }
 <h3>🎵Over🎵</h3>
 
 
-<div>🥁ドラム<br><input class="slider" type="range" min="0" max="1" step="0.01" value="1" id="volDr"></div>
+<div>
+    🥁ドラム 
+    <button id="btnShowDrum" style="padding:2px 10px; font-size:12px; margin:0 0 0 10px;">👀</button>
+    <br>
+    <input class="slider" type="range" min="0" max="1" step="0.01" value="1" id="volDr">
+</div>
 
 <div>🎸ベース<br><input class="slider" type="range" min="0" max="1" step="0.01" value="1" id="volBa"></div>
 
@@ -206,19 +222,19 @@ document.getElementById("btnStop").onclick = () => {
 let drumEvents = []; // 解析されたデータがここに入る
 
 async function loadAndParseMidi() {
-    try {
-        // MIDIファイルの読み込み
+try {
         const response = await fetch('Drum_Kit.mid');
         const arrayBuffer = await response.arrayBuffer();
         
         // ライブラリでMIDIを解析
         const midiData = MidiParser.parse(new Uint8Array(arrayBuffer));
         
-        const bpm = 90; // 今回の指定BPM
+        const bpm = 90; // 指定BPM
         const ticksPerBeat = midiData.timeDivision;
         const secondsPerTick = 60 / (bpm * ticksPerBeat);
 
         let tempEvents = [];
+        let usedNotes = new Set(); // 使われている音色番号を記録する箱
 
         midiData.track.forEach(track => {
             let currentTick = 0;
@@ -230,9 +246,20 @@ async function loadAndParseMidi() {
                     const noteNumber = event.data[0];
                     const time = currentTick * secondsPerTick;
                     
+                    // 重複チェック用に番号を保存
+                    usedNotes.add(noteNumber);
+                    
                     let part = '';
                     if (noteNumber === 36) part = 'kick';
                     if (noteNumber === 38) part = 'snare';
+                    if (noteNumber === 51) part = 'ride';
+                    if (noteNumber === 42) part = 'HiHatClose';
+                    if (noteNumber === 46) part = 'HiHatOpen';
+                    if (noteNumber === 45) part = 'tamLo';
+                    if (noteNumber === 48) part = 'tamHi';
+                    if (noteNumber === 41) part = 'tamFloor';
+                    if (noteNumber === 49) part = 'cr1';
+                    if (noteNumber === 57) part = 'cr2';
                     
                     if (part) {
                         tempEvents.push({ time: time, part: part });
@@ -241,9 +268,13 @@ async function loadAndParseMidi() {
             });
         });
 
+// 使われている全ノート番号を小さい順にコンソールへ表示（1回だけ）
+        const sortedNotes = Array.from(usedNotes).sort((a, b) => a - b);
+        console.log("🎸 このMIDIで使用されているノート番号一覧:", sortedNotes);
+
         // 時間順にソートして本番用変数に格納
         drumEvents = tempEvents.sort((a, b) => a.time - b.time);
-        console.log("MIDI解析成功！ 打点数:", drumEvents.length);
+        console.log("MIDI解析完了！ 有効な打点数:", drumEvents.length);
         
     } catch (error) {
         console.error("MIDI解析エラー:", error);
@@ -319,10 +350,29 @@ document.getElementById("volVo2").oninput = e => setVol('vo2', e.target.value);
 document.getElementById("btnPlay").onclick = playAll;
 
 window.onload = () => {
+// --- 既存のドラッグ用変数の取得 ---
     const panel = document.getElementById('drum-panel');
     const handle = document.getElementById('drum-handle');
+    
+    // --- 【追加】ボタンの取得 ---
+    const btnShow = document.getElementById('btnShowDrum');
+    const btnClose = document.getElementById('btnCloseDrum');
 
-    if (!panel || !handle) return;
+    // 全ての要素が揃っているかチェック
+    if (!panel || !handle || !btnShow || !btnClose) {
+        console.warn("ドラムパネルかボタンが見つかりません。HTMLのIDを確認してください。");
+        return;
+    }
+
+    // --- 【修正】表示・非表示のボタン処理をここに入れる ---
+    btnShow.onclick = () => {
+        panel.style.display = 'block';
+    };
+
+    btnClose.onclick = (e) => {
+        e.stopPropagation(); // ドラッグが始まらないように保護
+        panel.style.display = 'none';
+    };
 
     let isDragging = false;
     let startX, startY;
@@ -370,15 +420,28 @@ window.onload = () => {
     handle.addEventListener('touchstart', startDragging, { passive: false });
     window.addEventListener('touchmove', moveDragging, { passive: false });
     window.addEventListener('touchend', stopDragging, { passive: false });
-};
+  
+  };
+
+
 
 </script>
-<div id="drum-panel">
-    <div id="drum-handle">Drum Visualizer (Drag me)</div>
+<div id="drum-panel" style="display: none;"> <div id="drum-handle">
+        Drum Visualizer
+        <span id="btnCloseDrum" style="float:right; cursor:pointer; padding:0 5px; font-weight:bold;">×</span>
+    </div>
     <div id="drum-content">
         <img src="drum_base.png" class="drum-base">
         <img id="img-snare" src="snare.png" class="drum-part">
         <img id="img-kick" src="kick.png" class="drum-part">
+        <img id="img-ride" src="ride.png" class="drum-part">
+        <img id="img-HiHatClose" src="HiHatClose.png" class="drum-part">
+        <img id="img-HiHatOpen" src="HiHatOpen.png" class="drum-part">
+        <img id="img-tamLo" src="tamLo.png" class="drum-part">
+        <img id="img-tamHi" src="tamHi.png" class="drum-part">
+        <img id="img-tamFloor" src="tamFloor.png" class="drum-part">
+        <img id="img-cr1" src="cr1.png" class="drum-part">
+        <img id="img-cr2" src="cr2.png" class="drum-part">
     </div>
 </div>
 </body>
