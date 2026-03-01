@@ -279,6 +279,50 @@ document.getElementById("volVo1").oninput = e => setVol('vo1', e.target.value);
 document.getElementById("volVo2").oninput = e => setVol('vo2', e.target.value);
 
 document.getElementById("btnPlay").onclick = playAll;
+
+window.onload = () => {
+    const panel = document.getElementById('drum-panel');
+    const handle = document.getElementById('drum-handle');
+
+    // パネルやハンドルが見つからない場合のエラー回避
+    if (!panel || !handle) {
+        console.warn("Drum panel elements not found. Check your HTML IDs.");
+        return;
+    }
+
+    let isDragging = false;
+    let startX, startY;
+
+    handle.onmousedown = (e) => {
+        isDragging = true;
+        // 現在のパネルの位置からマウスのオフセットを計算
+        startX = e.clientX - panel.offsetLeft;
+        startY = e.clientY - panel.offsetTop;
+        handle.style.cursor = 'grabbing';
+        
+        // テキスト選択を防ぐ
+        e.preventDefault();
+    };
+
+    document.onmousemove = (e) => {
+        if (!isDragging) return;
+        
+        let newX = e.clientX - startX;
+        let newY = e.clientY - startY;
+        
+        panel.style.left = newX + 'px';
+        panel.style.top = newY + 'px';
+        panel.style.bottom = 'auto'; // 固定位置を解除
+        panel.style.right = 'auto';  // 固定位置を解除
+    };
+
+    document.onmouseup = () => {
+        isDragging = true; // ドラッグ終了
+        isDragging = false;
+        handle.style.cursor = 'move';
+    };
+};
+
 </script>
 <div id="drum-panel">
     <div id="drum-handle">Drum Visualizer (Drag me)</div>
