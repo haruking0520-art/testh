@@ -284,43 +284,52 @@ window.onload = () => {
     const panel = document.getElementById('drum-panel');
     const handle = document.getElementById('drum-handle');
 
-    // パネルやハンドルが見つからない場合のエラー回避
-    if (!panel || !handle) {
-        console.warn("Drum panel elements not found. Check your HTML IDs.");
-        return;
-    }
+    if (!panel || !handle) return;
 
     let isDragging = false;
     let startX, startY;
 
-    handle.onmousedown = (e) => {
+    // マウスとタッチの両方のイベントを登録する関数
+    const startDragging = (e) => {
         isDragging = true;
-        // 現在のパネルの位置からマウスのオフセットを計算
-        startX = e.clientX - panel.offsetLeft;
-        startY = e.clientY - panel.offsetTop;
+        // タッチイベントかマウスイベントかを判定して座標を取得
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        
+        startX = clientX - panel.offsetLeft;
+        startY = clientY - panel.offsetTop;
         handle.style.cursor = 'grabbing';
         
-        // テキスト選択を防ぐ
-        e.preventDefault();
+        // スマホのスクロールを一時的に防止
+        if (e.cancelable) e.preventDefault();
     };
 
-    document.onmousemove = (e) => {
+    const moveDragging = (e) => {
         if (!isDragging) return;
         
-        let newX = e.clientX - startX;
-        let newY = e.clientY - startY;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
         
-        panel.style.left = newX + 'px';
-        panel.style.top = newY + 'px';
-        panel.style.bottom = 'auto'; // 固定位置を解除
-        panel.style.right = 'auto';  // 固定位置を解除
+        panel.style.left = (clientX - startX) + 'px';
+        panel.style.top = (clientY - startY) + 'px';
+        panel.style.bottom = 'auto';
+        panel.style.right = 'auto';
     };
 
-    document.onmouseup = () => {
-        isDragging = true; // ドラッグ終了
+    const stopDragging = () => {
         isDragging = false;
         handle.style.cursor = 'move';
     };
+
+    // マウスイベント
+    handle.addEventListener('mousedown', startDragging);
+    document.addEventListener('mousemove', moveDragging);
+    document.addEventListener('mouseup', stopDragging);
+
+    // タッチイベント (スマホ用)
+    handle.addEventListener('touchstart', startDragging, { passive: false });
+    document.addEventListener('touchmove', moveDragging, { passive: false });
+    document.addEventListener('touchend', stopDragging);
 };
 
 </script>
