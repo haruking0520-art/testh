@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Band Practice Mixer</title>
+
+<style>
+
+body { font-family: Arial; text-align:center; background:#111; color:white; }
+
+.slider { width: 80%; margin:10px; }
+
+.timeline { width:90%; margin-top:20px; }
+
+button { padding:10px 20px; margin:10px; font-size:16px; border-radius:6px; border:none; cursor:pointer; }
+/* <style>内に追加 */
+button:disabled { background:#555; cursor: not-allowed; opacity: 0.6; }
+.play { background:#28a745; color:white; }
+
+.stop { background:#dc3545; color:white; }
+
+#drum-panel {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 300px; /* サイズは適宜調整してください */
+    background: rgba(0,0,0,0.8);
+    border: 2px solid #555;
+    border-radius: 8px;
+    z-index: 9999;
+    overflow: hidden;
+}
+#drum-handle {
+    background: #444;
+    color: white;
+    padding: 5px;
+    font-size: 12px;
+    cursor: move;
+    text-align: center;
+}
+#drum-content {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3; /* 画像の比率に合わせて調整 */
+}
+.drum-base {
+    width: 100%;
+    display: block;
+}
+.drum-part {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.05s;
+}
+.drum-part.active {
+    opacity: 1;
+    filter: brightness(1.5) drop-shadow(0 0 10px #ffc107);
+}
+
+</style>
+
+</head>
+
+
+<body>
+<h2>🎸バンド練習用簡易ミキサー</h2>
+<h3>🎵Over🎵</h3>
+
+
+<div>🥁ドラム<br><input class="slider" type="range" min="0" max="1" step="0.01" value="1" id="volDr"></div>
+
+<div>🎸ベース<br><input class="slider" type="range" min="0" max="1" step="0.01" value="1" id="volBa"></div>
+
+<div>🎸エレキギター<br><input class="slider" type="range" min="0" max="1" step="0.01" value="1" id="volGt1"></div>
+
+<div>🎸アコギ<br><input class="slider" type="range" min="0" max="1" step="0.01" value="1" id="volGt2"></div>
+
+<div>🎹キーボード<br><input class="slider" type="range" min="0" max="1" step="0.01" value="1" id="volPi"></div>
+
+<div>🎤ボーカル（男性メイン）<br><input class="slider" type="range" min="0" max="1" step="0.01" value="1" id="volVo1"></div>
+
+<div>🎤ボーカル（男性ハモリ）<br><input class="slider" type="range" min="0" max="1" step="0.01" value="1" id="volVo2"></div>
+
+
+
+<input type="range" id="timeline" class="timeline" value="0" min="0" step="0.01">
+
+<br>
+
+<span id="timeDisplay">0:00</span>
+
+<br>
+<div id="status" style="color: #ffc107; font-weight: bold; margin: 10px; height: 1.2em;"></div>
+<button class="play" id="btnPlay">▶ Play</button>
+
+<button class="stop" id="btnStop">■ Stop</button>
+
+
+
+<script>
+
+let context = null;
+let buffers = {};
+let gainNodes = {};
+let sources = [];
+let startTime = 0;
+let pauseOffset = 0;
+let isPlaying = false;
+let timer = null;
+
+const files = {
+  dr: "Dr.mp3",
+  ba: "Ba.mp3",
+  gt1: "Gt1.mp3",
+  gt2: "Gt2.mp3",
+  pi: "Pi.mp3",
+  vo1: "Vo1.mp3",
+  vo2: "Vo2.mp3"
+};
+
+async function loadAudio() {
+  if (!context) {
+    context = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (context.state === 'suspended') {
+    await context.resume();
+  }
+  
+  if (Object.keys(buffers).length > 0) return;
+
+  // --- 追加部分: ローディング表示開始 ---
+  const statusEl = document.getElementById("status");
+  const playBtn = document.getElementById("btnPlay");
+  statusEl.textContent = "⏳ 音源を読み込み中...";
+  playBtn.disabled = true; 
+
+  for (let key in files) {
+    try {
+      const response = await fetch(files[key]);
+      const arrayBuffer = await response.arrayBuffer();
+      buffers[key] = await context.decodeAudioData(arrayBuffer);
+
+      const gainNode = context.createGain();
+      gainNode.connect(context.destination);
+      gainNodes[key] = gainNode;
+    } catch (e) {
+      console.error(`Failed to load ${files[key]}:`, e);
+      statusEl.textContent = `❌ ${files[key]} の読み込みに失敗`;
+    }
+  }
+
+  if (buffers.pi) {
+    document.getElementById("timeline").max = buffers.pi.duration;
+  }
+  
+  // --- 追加部分: 完了表示 ---
+  statusEl.textContent = "✅ 準備完了！";
+  playBtn.disabled = false;
+  setTimeout(() => { if(statusEl.textContent === "✅ 準備完了！") statusEl.textContent = ""; }, 3000);
+}
+async function playAll() {
+  if (isPlaying) return; // 二重再生防止
+  await loadAudio();
+  await context.resume();
+
+  sources = [];
+  startTime = context.currentTime - pauseOffset;
+
+  for (let key in buffers) {
+    const src = context.createBufferSource();
+    src.buffer = buffers[key];
+    src.connect(gainNodes[key]);
+    // pauseOffset の位置から再生開始
+    src.start(0, pauseOffset % buffers[key].duration);
+    sources.push(src);
+  }
+
+  isPlaying = true;
+  timer = setInterval(updateTimeline, 100);
+}
+
+function stopAll() {
+  sources.forEach(s => { try { s.stop(); } catch(e) {} });
+  sources = [];
+  isPlaying = false;
+  clearInterval(timer);
+}
+
+// 停止ボタン：完全に最初に戻す
+document.getElementById("btnStop").onclick = () => {
+  stopAll();
+  pauseOffset = 0;
+  updateUI(0);
+};
+
+// BPM 90 (1拍 0.666s) に基づく暫定データ
+const drumEvents = [
+    { time: 0.00, part: 'kick' },
+    { time: 0.67, part: 'kick' },
+    { time: 1.33, part: 'snare' },
+    { time: 2.00, part: 'kick' },
+    { time: 2.67, part: 'snare' },
+    { time: 3.33, part: 'kick' },
+    { time: 4.00, part: 'kick' },
+    { time: 4.67, part: 'snare' },
+    { time: 5.33, part: 'kick' },
+    { time: 6.00, part: 'snare' }
+];
+
+let lastProcessedTime = -1;
+
+function updateTimeline() {
+    if (!isPlaying) return;
+    pauseOffset = context.currentTime - startTime;
+    
+    // --- 【追加】ドラムの光る処理 ---
+    if (pauseOffset < lastProcessedTime) lastProcessedTime = -1; // ループやシーク対策
+
+    drumEvents.forEach(ev => {
+        if (ev.time > lastProcessedTime && ev.time <= pauseOffset) {
+            const el = document.getElementById('img-' + ev.part);
+            if (el) {
+                el.classList.add('active');
+                setTimeout(() => el.classList.remove('active'), 100);
+            }
+        }
+    });
+    lastProcessedTime = pauseOffset;
+    // ----------------------------
+
+    if (buffers.pi && pauseOffset >= buffers.pi.duration) {
+        stopAll();
+        pauseOffset = 0;
+        lastProcessedTime = -1;
+    }
+    updateUI(pauseOffset);
+}
+
+function updateUI(val) {
+  document.getElementById("timeline").value = val;
+  document.getElementById("timeDisplay").textContent = formatTime(val);
+}
+
+// タイムライン操作
+document.getElementById("timeline").oninput = function() {
+  const wasPlaying = isPlaying;
+  stopAll();
+  pauseOffset = parseFloat(this.value);
+  updateUI(pauseOffset);
+  if (wasPlaying) playAll(); // 再生中だったらその場所から再開
+};
+
+function formatTime(sec) {
+  const m = Math.floor(sec/60);
+  const s = Math.floor(sec%60).toString().padStart(2,"0");
+  return m + ":" + s;
+}
+
+// ボリューム操作（初期値反映用）
+function setVol(key, val) {
+  if (gainNodes[key]) gainNodes[key].gain.value = val;
+}
+document.getElementById("volDr").oninput = e => setVol('dr', e.target.value);
+document.getElementById("volBa").oninput = e => setVol('ba', e.target.value);
+document.getElementById("volGt1").oninput = e => setVol('gt1', e.target.value);
+document.getElementById("volGt2").oninput = e => setVol('gt2', e.target.value);
+document.getElementById("volPi").oninput = e => setVol('pi', e.target.value);
+document.getElementById("volVo1").oninput = e => setVol('vo1', e.target.value);
+document.getElementById("volVo2").oninput = e => setVol('vo2', e.target.value);
+
+document.getElementById("btnPlay").onclick = playAll;
+</script>
+<div id="drum-panel">
+    <div id="drum-handle">Drum Visualizer (Drag me)</div>
+    <div id="drum-content">
+        <img src="drum_base.png" class="drum-base">
+        <img id="img-snare" src="snare.png" class="drum-part">
+        <img id="img-kick" src="kick.png" class="drum-part">
+    </div>
+</div>
+</body>
+
+</html>
