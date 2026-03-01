@@ -289,31 +289,33 @@ window.onload = () => {
     let isDragging = false;
     let startX, startY;
 
-    // マウスとタッチの両方のイベントを登録する関数
     const startDragging = (e) => {
         isDragging = true;
-        // タッチイベントかマウスイベントかを判定して座標を取得
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        // マウスとタッチの両方の座標取得に対応（Safari互換）
+        const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+        const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
         
         startX = clientX - panel.offsetLeft;
         startY = clientY - panel.offsetTop;
+        
         handle.style.cursor = 'grabbing';
         
-        // スマホのスクロールを一時的に防止
+        // Safariでイベントを確実に実行させる
         if (e.cancelable) e.preventDefault();
     };
 
     const moveDragging = (e) => {
         if (!isDragging) return;
         
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+        const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
         
         panel.style.left = (clientX - startX) + 'px';
         panel.style.top = (clientY - startY) + 'px';
         panel.style.bottom = 'auto';
         panel.style.right = 'auto';
+
+        if (e.cancelable) e.preventDefault(); // スクロールを防止
     };
 
     const stopDragging = () => {
@@ -321,15 +323,15 @@ window.onload = () => {
         handle.style.cursor = 'move';
     };
 
-    // マウスイベント
+    // PC用
     handle.addEventListener('mousedown', startDragging);
-    document.addEventListener('mousemove', moveDragging);
-    document.addEventListener('mouseup', stopDragging);
+    window.addEventListener('mousemove', moveDragging); // documentよりwindowが安定
+    window.addEventListener('mouseup', stopDragging);
 
-    // タッチイベント (スマホ用)
+    // スマホ/Safari用 (passive: false が肝)
     handle.addEventListener('touchstart', startDragging, { passive: false });
-    document.addEventListener('touchmove', moveDragging, { passive: false });
-    document.addEventListener('touchend', stopDragging);
+    window.addEventListener('touchmove', moveDragging, { passive: false });
+    window.addEventListener('touchend', stopDragging, { passive: false });
 };
 
 </script>
