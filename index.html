@@ -9,7 +9,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>Band Practice Mixer</title>
-
+<script src="https://cdn.jsdelivr.net/npm/midi-parser-js"></script>
 <style>
 
 body { font-family: Arial; text-align:center; background:#111; color:white; }
@@ -203,19 +203,57 @@ document.getElementById("btnStop").onclick = () => {
   updateUI(0);
 };
 
-// BPM 90 (1拍 0.666s) に基づく暫定データ
-const drumEvents = [
-    { time: 0.00, part: 'kick' },
-    { time: 0.67, part: 'kick' },
-    { time: 1.33, part: 'snare' },
-    { time: 2.00, part: 'kick' },
-    { time: 2.67, part: 'snare' },
-    { time: 3.33, part: 'kick' },
-    { time: 4.00, part: 'kick' },
-    { time: 4.67, part: 'snare' },
-    { time: 5.33, part: 'kick' },
-    { time: 6.00, part: 'snare' }
-];
+let drumEvents = []; // 解析されたデータがここに入る
+
+async function loadAndParseMidi() {
+    try {
+        // MIDIファイルの読み込み
+        const response = await fetch('Drum_Kit.mid');
+        const arrayBuffer = await response.arrayBuffer();
+        
+        // ライブラリでMIDIを解析
+        const midiData = MidiParser.parse(new Uint8Array(arrayBuffer));
+        
+        const bpm = 90; // 今回の指定BPM
+        const ticksPerBeat = midiData.timeDivision;
+        const secondsPerTick = 60 / (bpm * ticksPerBeat);
+
+        let tempEvents = [];
+
+        midiData.track.forEach(track => {
+            let currentTick = 0;
+            track.event.forEach(event => {
+                currentTick += event.deltaTime;
+                
+                // Note On イベント (type 9) かつ ベロシティが 0 より大きい
+                if (event.type === 9 && event.data[1] > 0) {
+                    const noteNumber = event.data[0];
+                    const time = currentTick * secondsPerTick;
+                    
+                    let part = '';
+                    if (noteNumber === 36) part = 'kick';
+                    if (noteNumber === 38) part = 'snare';
+                    
+                    if (part) {
+                        tempEvents.push({ time: time, part: part });
+                    }
+                }
+            });
+        });
+
+        // 時間順にソートして本番用変数に格納
+        drumEvents = tempEvents.sort((a, b) => a.time - b.time);
+        console.log("MIDI解析成功！ 打点数:", drumEvents.length);
+        
+    } catch (error) {
+        console.error("MIDI解析エラー:", error);
+    }
+}
+
+// 起動時に実行
+loadAndParseMidi();
+
+
 
 let lastProcessedTime = -1;
 
