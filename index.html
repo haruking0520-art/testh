@@ -403,15 +403,20 @@ window.onload = () => {
         panel.style.display = 'block';
     };
 
-    btnClose.onclick = (e) => {
-        e.stopPropagation(); // ドラッグが始まらないように保護
-        panel.style.display = 'none';
+    const closeHandler = (e) => {
+    e.stopPropagation(); // ドラッグイベントへ伝わるのを止める
+    e.preventDefault();  // ブラウザの余計な動きを止める
+    panel.style.display = 'none';
     };
+
+    btnClose.addEventListener('touchstart', closeHandler, { passive: false });
+    btnClose.addEventListener('click', closeHandler); // PC用も残す
 
     let isDragging = false;
     let startX, startY;
 
     const startDragging = (e) => {
+        if (e.target.id === 'btnCloseDrum') return;
         isDragging = true;
         // マウスとタッチの両方の座標取得に対応（Safari互換）
         const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
