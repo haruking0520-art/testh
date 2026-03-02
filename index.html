@@ -121,11 +121,15 @@ button:disabled { background:#555; cursor: not-allowed; opacity: 0.6; }
 
 <button class="stop" id="btnStop">■ Stop</button>
 
-
+<div style="margin: 10px;">
+  ♩= <input type="number" id="bpmInput" value="90" style="width: 50px; background: #333; color: white; border: 1px solid #555; padding: 5px; border-radius: 4px;">
+  <span style="font-size: 12px; color: #888;"></span>
+</div>
 
 <script>
 
 let context = null;
+let lastContextTime = 0; // 最後にチェックしたContextの時間
 let buffers = {};
 let gainNodes = {};
 let sources = [];
@@ -184,25 +188,35 @@ async function loadAudio() {
   playBtn.disabled = false;
   setTimeout(() => { if(statusEl.textContent === "✅ 準備完了！") statusEl.textContent = ""; }, 3000);
 }
+// 基準となるBPM（元のmp3が録音されているテンポ）
+const BASE_BPM = 90;
+
 async function playAll() {
-  if (isPlaying) return; // 二重再生防止
-  await loadAudio();
-  await context.resume();
+    if (isPlaying) return;
+    await loadAudio();
+    await context.resume();
 
-  sources = [];
-  startTime = context.currentTime - pauseOffset;
+    const bpmInput = parseFloat(document.getElementById('bpmInput').value) || 90;
+    const speedRatio = bpmInput / 90;
 
-  for (let key in buffers) {
-    const src = context.createBufferSource();
-    src.buffer = buffers[key];
-    src.connect(gainNodes[key]);
-    // pauseOffset の位置から再生開始
-    src.start(0, pauseOffset % buffers[key].duration);
-    sources.push(src);
-  }
+    sources = [];
+    // startTimeの管理を一旦リセット
+    lastContextTime = context.currentTime;
 
-  isPlaying = true;
-  timer = setInterval(updateTimeline, 100);
+    for (let key in buffers) {
+        const src = context.createBufferSource();
+        src.buffer = buffers[key];
+        src.playbackRate.value = speedRatio;
+        // ★これを追加（効くかどうかはブラウザ次第！）
+        src.preservesPitch = true;
+        src.connect(gainNodes[key]);
+        // pauseOffsetの位置から再生
+        src.start(0, pauseOffset); 
+        sources.push(src);
+    }
+
+    isPlaying = true;
+    timer = setInterval(updateTimeline, 20); // 精度を20msにアップ
 }
 
 function stopAll() {
@@ -222,31 +236,28 @@ document.getElementById("btnStop").onclick = () => {
 let drumEvents = []; // 解析されたデータがここに入る
 
 async function loadAndParseMidi() {
-try {
+  try {
+        // 入力欄から現在のBPMを取得
+        const bpm = 90;
+        
         const response = await fetch('Drum_Kit.mid');
         const arrayBuffer = await response.arrayBuffer();
-        
-        // ライブラリでMIDIを解析
         const midiData = MidiParser.parse(new Uint8Array(arrayBuffer));
         
-        const bpm = 90; // 指定BPM
         const ticksPerBeat = midiData.timeDivision;
+        // 指定されたBPMで1チックあたりの秒数を計算
         const secondsPerTick = 60 / (bpm * ticksPerBeat);
 
         let tempEvents = [];
-        let usedNotes = new Set(); // 使われている音色番号を記録する箱
+        let usedNotes = new Set();
 
         midiData.track.forEach(track => {
             let currentTick = 0;
             track.event.forEach(event => {
                 currentTick += event.deltaTime;
-                
-                // Note On イベント (type 9) かつ ベロシティが 0 より大きい
                 if (event.type === 9 && event.data[1] > 0) {
                     const noteNumber = event.data[0];
                     const time = currentTick * secondsPerTick;
-                    
-                    // 重複チェック用に番号を保存
                     usedNotes.add(noteNumber);
                     
                     let part = '';
@@ -255,9 +266,9 @@ try {
                     if (noteNumber === 51) part = 'ride';
                     if (noteNumber === 42) part = 'HiHatClose';
                     if (noteNumber === 46) part = 'HiHatOpen';
-                    if (noteNumber === 45) part = 'tamLo';
+                    if (noteNumber === 47) part = 'tamLo';
                     if (noteNumber === 48) part = 'tamHi';
-                    if (noteNumber === 41) part = 'tamFloor';
+                    if (noteNumber === 43) part = 'tamFloor';
                     if (noteNumber === 49) part = 'cr1';
                     if (noteNumber === 57) part = 'cr2';
                     
@@ -274,12 +285,24 @@ try {
 
         // 時間順にソートして本番用変数に格納
         drumEvents = tempEvents.sort((a, b) => a.time - b.time);
-        console.log("MIDI解析完了！ 有効な打点数:", drumEvents.length);
+        console.log(`BPM ${bpm} で再計算完了。有効な打点数:`, drumEvents.length);
         
     } catch (error) {
         console.error("MIDI解析エラー:", error);
     }
 }
+
+document.getElementById('bpmInput').onchange = function() {
+    const speedRatio = (parseFloat(this.value) || 90) / 90;
+
+    if (isPlaying) {
+        sources.forEach(src => {
+            // 音源の速度だけサッと変える
+            src.playbackRate.value = speedRatio;
+        });
+    }
+    // updateTimelineが次の瞬間に新しいspeedRatioを使ってpauseOffsetを計算し始めるので、ズレません
+};
 
 // 起動時に実行
 loadAndParseMidi();
@@ -290,23 +313,34 @@ let lastProcessedTime = -1;
 
 function updateTimeline() {
     if (!isPlaying) return;
-    pauseOffset = context.currentTime - startTime;
+
+    // 前回のチェックからの「現実の経過時間」を算出
+    const now = context.currentTime;
+    const deltaTime = now - lastContextTime;
+    lastContextTime = now;
+
+    // 現在のBPM倍率を取得
+    const speedRatio = (parseFloat(document.getElementById('bpmInput').value) || 90) / 90;
+
+    // 【重要】実際に進んだ時間に倍率をかけて、曲の中の進み具合を加算する
+    pauseOffset += deltaTime * speedRatio;
     
-    // --- 【追加】ドラムの光る処理 ---
-    if (pauseOffset < lastProcessedTime) lastProcessedTime = -1; // ループやシーク対策
+    // --- ドラムの光る処理 (ここから下は同じ) ---
+    if (pauseOffset < lastProcessedTime) lastProcessedTime = -1;
 
     drumEvents.forEach(ev => {
         if (ev.time > lastProcessedTime && ev.time <= pauseOffset) {
             const el = document.getElementById('img-' + ev.part);
             if (el) {
                 el.classList.add('active');
-                setTimeout(() => el.classList.remove('active'), 100);
+                const duration = Math.max(30, 80 / speedRatio); 
+                setTimeout(() => el.classList.remove('active'), duration);
             }
         }
     });
     lastProcessedTime = pauseOffset;
-    // ----------------------------
 
+    // 終了判定（ピアノなど一番長いトラック基準）
     if (buffers.pi && pauseOffset >= buffers.pi.duration) {
         stopAll();
         pauseOffset = 0;
